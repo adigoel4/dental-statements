@@ -429,10 +429,12 @@ def normalize_chart_numbers(df):
     Returns:
         DataFrame with normalized CHART #
     """
-    df = df.copy()
-    # Explicitly convert to string first to avoid dtype warning
-    df['CHART #'] = df['CHART #'].astype(str).apply(normalize_chart_number)
-    return df
+    # Create a proper copy and modify the column
+    result = df.copy()
+    # Convert to string and normalize chart numbers
+    normalized_values = result['CHART #'].astype(str).apply(normalize_chart_number)
+    result.loc[:, 'CHART #'] = normalized_values
+    return result
 
 
 # ============================================================================
