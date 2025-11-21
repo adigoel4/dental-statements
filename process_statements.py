@@ -381,6 +381,11 @@ def load_old_tracking_sheet(excel_path, sheet_name='Statement', start_row=3):
         
         df_old = df_old.rename(columns=column_mapping)
         
+        # Ensure CHART # column exists and convert to string
+        if 'CHART #' in df_old.columns:
+            # Convert to string (handles both text and numbers from Excel)
+            df_old.loc[:, 'CHART #'] = df_old['CHART #'].astype(str)
+        
         print(f"   ✓ Loaded {len(df_old)} tracking records with {len(df_old.columns)} columns")
         
         return df_old
@@ -406,14 +411,27 @@ def normalize_chart_number(chart_num):
     - Remove non-digits
     - Pad to 6 digits (e.g., "123" → "000123")
     
+    Handles various formats:
+    - Manual entry: "1234" → "001234"
+    - System format: "001234" → "001234"  
+    - Excel float: 1234.0 → "001234"
+    - Integer: 1234 → "001234"
+    
     Args:
         chart_num: Chart number (any format)
         
     Returns:
         Normalized 6-digit string
     """
-    # Convert to string and remove non-digits
-    chart_str = re.sub(r'\D', '', str(chart_num))
+    # Convert to string
+    chart_str = str(chart_num)
+    
+    # Remove decimal part if present (handles 1234.0 → 1234)
+    if '.' in chart_str:
+        chart_str = chart_str.split('.')[0]
+    
+    # Remove any non-digits
+    chart_str = re.sub(r'\D', '', chart_str)
     
     # Pad to 6 digits
     return chart_str.zfill(6)
@@ -483,8 +501,15 @@ def merge_with_tracking_data(df_new, df_old):
         
         # Count how many records had tracking data
         matched = df_merged['STATUS'].notna().sum() if 'STATUS' in df_merged.columns else 0
-        print(f"   ✓ Matched {matched} records with existing tracking data")
-        print(f"   ✓ {len(df_merged) - matched} new records without tracking history")
+        
+        # Show overlap between old and new chart numbers
+        new_charts = set(df_new['CHART #'].unique())
+        old_charts = set(df_old_tracking['CHART #'].unique())
+        common_charts = new_charts & old_charts
+        
+        print(f"   ✓ {len(common_charts)} patients found in old tracking sheet")
+        print(f"   ✓ {matched} patients have tracking data (STATUS/NOTES)")
+        print(f"   ✓ {len(df_merged) - matched} patients have no tracking history")
         
     else:
         # No old tracking data - just use new data
