@@ -1,169 +1,64 @@
-# Windows Setup Guide
+# Dental Statement Processor
 
-Complete setup for a fresh Windows laptop in 7 easy steps.
+Automate processing of dental patient balance statements with PDF parsing and tracking data merging.
 
----
+## Quick Start
 
-## Step 1: Install Python
+Run the web app:
 
-1. Go to **https://www.python.org/downloads/**
-2. Download and run the installer
-3. ⚠️ **CHECK THE BOX:** "Add Python to PATH"
-4. Click "Install Now"
-
-**Verify:**
+**Mac/Linux:**
 ```bash
-python --version
+./run_app.sh
 ```
 
----
-
-## Step 2: Install UV
-
-Open Command Prompt and run:
-
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-Close and reopen Command Prompt, then verify:
+**Windows:**
 ```bash
-uv --version
+run_app.bat
 ```
 
----
-
-## Step 3: Install VS Code (Optional)
-
-1. Go to **https://code.visualstudio.com/**
-2. Download and install
-3. ✅ Check "Add to PATH" during installation
-
----
-
-## Step 4: Get the Files
-
-Download the `dental-statements` folder and save it to your Desktop:
-```
-C:\Users\YourName\Desktop\dental-statements\
-```
-
----
-
-## Step 5: Install Dependencies
-
-Open Command Prompt in the `dental-statements` folder:
-- Navigate to folder in File Explorer
-- Click address bar → type `cmd` → Enter
-
-Run these commands:
+Or manually:
 ```bash
-uv venv
-.venv\Scripts\activate
+uv venv --python 3.12
 uv pip install -r requirements.txt
+streamlit run app.py
 ```
 
-You should see `(.venv)` in your prompt.
+App opens at `http://localhost:8501`
 
----
+## Usage
 
-## Step 6: Add Your Files
-
-1. Put your PDF in: `input\PAT_BAL_20251116.pdf`
-2. Put old tracking sheet in: `input\Statements.xlsx` (if you have one)
-3. Edit `config.py` → update PDF filename if needed
-
----
-
-## Step 7: Run It!
-
-```bash
-.venv\Scripts\activate
-python process_statements.py
-```
-
-**Results:** Open `output\Merged_Statements.xlsx`
-
----
-
-## Monthly Workflow
-
-Each month:
-
-1. **Save last month's work:**
-   - Copy `output\Merged_Statements.xlsx` → `input\Statements.xlsx`
-
-2. **Add new PDF:**
-   - Save to `input\` folder
-   - Update filename in `config.py`
-
-3. **Run:**
-   ```bash
-   cd Desktop\dental-statements
-   .venv\Scripts\activate
-   python process_statements.py
-   ```
-
-4. **Review:** Open `output\Merged_Statements.xlsx`
-
----
-
-## Quick Reference
-
-| Task | Command |
-|------|---------|
-| Activate environment | `.venv\Scripts\activate` |
-| Run script | `python process_statements.py` |
-| Check setup | `python check_setup.py` |
-| Edit settings | Open `config.py` in Notepad |
-
----
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| "python is not recognized" | Reinstall Python with "Add to PATH" checked |
-| "uv is not recognized" | Close and reopen Command Prompt |
-| "File not found" | Put files in `input\` folder |
-| "No module named..." | Activate venv, then `uv pip install -r requirements.txt` |
-
----
+1. **Upload PDF**: Patient balance report from dental software
+2. **Upload Excel** (optional): Previous month's tracking sheet
+3. **Configure Columns**: 
+   - Enter old sheet column names
+   - Select which to transfer to new sheet
+   - Preview output structure
+4. **Process**: Click button and wait for results
+5. **Download**: Timestamped Excel file with merged data
 
 ## What It Does
 
-**Input:** PDF report (10,000+ patients) + old tracking sheet
+- Parses PDF patient balance reports
+- Filters for outstanding balances (Patient Balance > 0 AND Family Balance > 0)
+- Merges with tracking data from previous month
+- Exports merged Excel with your notes/status preserved
 
-**Output:** Excel with ~825 outstanding accounts
+## Deploy to Cloud
 
-**Process:**
-- Parses PDF → Filters to outstanding balances → Merges with your tracking data → Exports Excel
+1. Push to GitHub
+2. Go to [share.streamlit.io](https://share.streamlit.io)
+3. Deploy `app.py`
+4. Access from anywhere
 
-**Result:** Current balances + your old NOTES/STATUS merged together ✨
+## Command Line Alternative
 
----
-
-## File Structure
-
-```
-dental-statements/
-├── input/                      # Put files here
-│   ├── PAT_BAL_20251116.pdf
-│   └── Statements.xlsx
-├── output/                     # Results here
-│   └── Merged_Statements.xlsx
-├── config.py                   # Settings
-├── process_statements.py       # Main script
-└── SETUP.md                    # This file
+Edit `config.py` and run:
+```bash
+python process_statements.py
 ```
 
----
+## Requirements
 
-## Success Checklist
-
-- [ ] Output file created with ~825 records
-- [ ] Balances match PDF
-- [ ] Old NOTES/STATUS carried forward
-- [ ] Dates show as MM/DD/YY
-
-Done! 🎉
+- Python 3.10, 3.11, or 3.12 (not 3.14)
+- uv package manager
+- Dependencies in `requirements.txt`

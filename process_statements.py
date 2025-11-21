@@ -205,9 +205,6 @@ def load_old_tracking_sheet(excel_path, sheet_name='Statement', start_row=3):
         df_old = pd.read_excel(excel_path, sheet_name=sheet_name, skiprows=start_row - 1, header=0)
         print(f"   Found {len(df_old.columns)} columns: {list(df_old.columns)[:10]}...")
         
-        # Make a copy to avoid pandas warnings when modifying
-        df_old = df_old.copy()
-        
         # Standardize column names
         df_old = df_old.rename(columns={
             'Patient Name': 'Patient Name',
@@ -218,7 +215,11 @@ def load_old_tracking_sheet(excel_path, sheet_name='Statement', start_row=3):
         
         # Convert CHART # to string
         if 'CHART #' in df_old.columns:
-            df_old['CHART #'] = df_old['CHART #'].astype(str)
+            df_old = df_old.copy()
+            # Explicitly convert column to object dtype first to avoid dtype incompatibility warning
+            chart_values = df_old['CHART #'].astype(str)
+            df_old = df_old.astype({'CHART #': 'object'})
+            df_old.loc[:, 'CHART #'] = chart_values
         
         print(f"   ✓ Loaded {len(df_old)} tracking records with {len(df_old.columns)} columns")
         return df_old
