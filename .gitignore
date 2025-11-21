@@ -1,0 +1,32 @@
+# Patient data - keep private
+*.pdf
+*.xlsx
+*.xls
+Merged_Statements.xlsx
+Statements.xlsx
+patient_statements.pdf
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
