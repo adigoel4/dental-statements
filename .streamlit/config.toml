@@ -1,0 +1,30 @@
+# Streamlit configuration file
+# This file customizes the appearance and behavior of the app
+
+[theme]
+# Primary color - Dental office blue
+primaryColor = "#2275b0"
+
+# Background color for the main content area
+backgroundColor = "#FFFFFF"
+
+# Background color for the sidebar
+secondaryBackgroundColor = "#F5F5F5"
+
+# Text color
+textColor = "#262730"
+
+# Font family
+font = "sans serif"
+
+[server]
+# Maximum upload size in MB (adjust if you have very large PDFs)
+maxUploadSize = 200
+
+# Enable XSRF protection
+enableXsrfProtection = true
+
+[browser]
+# Automatically open browser on start (local development only)
+gatherUsageStats = false
+
