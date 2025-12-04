@@ -180,23 +180,6 @@ st.markdown("""
         box-shadow: 0 0 0 1px #2275b0 !important;
     }
     
-    /* Column mapping table */
-    .column-row {
-        padding: 0.4rem 0;
-        border-bottom: 1px solid #f0f0f0;
-        display: flex;
-        align-items: center;
-    }
-    
-    .column-row:last-child {
-        border-bottom: none;
-    }
-    
-    .column-row:hover {
-        background-color: #f8f9fa;
-        border-radius: 4px;
-    }
-    
     /* Table headers */
     .table-header {
         font-weight: 600;
@@ -207,25 +190,6 @@ st.markdown("""
         padding: 0.5rem 0;
         border-bottom: 2px solid #e9ecef;
         margin-bottom: 0.5rem;
-    }
-    
-    /* Source tags */
-    .source-tag {
-        display: inline-block;
-        padding: 0.2rem 0.6rem;
-        border-radius: 12px;
-        font-size: 0.75rem;
-        font-weight: 500;
-    }
-    
-    .source-pdf {
-        background-color: #e3f2fd;
-        color: #2275b0;
-    }
-    
-    .source-excel {
-        background-color: #e8f5e9;
-        color: #2d5f32;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -422,6 +386,75 @@ def normalize_chart_number(chart_num):
     return chart_str.zfill(6)
 
 
+def detect_header_row(excel_file):
+    """
+    Auto-detect the header row in an Excel file.
+    Looks for common column names like 'Patient Name', 'CHART #', etc.
+    Returns the 1-indexed row number where headers are found.
+    """
+    # Common header patterns to look for (case-insensitive)
+    header_patterns = [
+        'patient name', 'chart #', 'chart#', 'patient balance', 
+        'family balance', 'guarantor', 'status', 'notes'
+    ]
+    
+    try:
+        # Read first 20 rows without header to scan for header row
+        df_scan = pd.read_excel(excel_file, sheet_name=0, header=None, nrows=20)
+        
+        # Check each row for header patterns
+        for row_idx in range(len(df_scan)):
+            row_values = df_scan.iloc[row_idx].astype(str).str.lower().tolist()
+            
+            # Count how many header patterns match this row
+            matches = sum(1 for pattern in header_patterns 
+                         if any(pattern in str(val) for val in row_values))
+            
+            # If we find 2+ matches, this is likely the header row
+            if matches >= 2:
+                # Return 1-indexed row number
+                return row_idx + 1
+        
+        # Default to row 1 if no pattern found
+        return 1
+        
+    except Exception:
+        return 1
+
+
+def get_tracking_columns(excel_file, header_row):
+    """
+    Get columns from old Excel sheet that come after PATIENT BALANCE.
+    These are the tracking columns that need to be merged.
+    Returns list of column names.
+    """
+    try:
+        # Read with detected header row
+        df = pd.read_excel(excel_file, sheet_name=0, skiprows=header_row - 1, header=0)
+        columns = list(df.columns)
+        
+        # Find PATIENT BALANCE column (case-insensitive search)
+        patient_balance_idx = None
+        for i, col in enumerate(columns):
+            if 'patient balance' in str(col).lower():
+                patient_balance_idx = i
+                break
+        
+        # If found, return all columns after it
+        if patient_balance_idx is not None:
+            tracking_cols = columns[patient_balance_idx + 1:]
+            # Filter out unnamed columns and empty strings
+            tracking_cols = [col for col in tracking_cols 
+                           if col and not str(col).startswith('Unnamed')]
+            return tracking_cols
+        
+        # If PATIENT BALANCE not found, return empty list
+        return []
+        
+    except Exception:
+        return []
+
+
 def load_old_tracking_sheet(excel_file, start_row):
     """Load old tracking sheet from uploaded Excel file."""
     try:
@@ -449,37 +482,22 @@ def load_old_tracking_sheet(excel_file, start_row):
 
 
 def merge_with_tracking_data(df_new, df_old, excel_column_mapping):
-    """Merge new statement data with old tracking data using flexible column mapping."""
-    # Normalize CHART # in new data
+    """Merge new statement data with old tracking data."""
     df_new = df_new.copy()
     df_new.loc[:, 'CHART #'] = df_new['CHART #'].apply(normalize_chart_number)
     
     if not df_old.empty:
         # Get columns to include from old sheet
-        old_cols_to_include = [old_col for old_col, (include, _) in excel_column_mapping.items() if include]
+        cols_to_include = [col for col, (include, _) in excel_column_mapping.items() if include]
         
         # Select tracking columns that exist in old sheet
-        tracking_cols = ['CHART #'] + [col for col in old_cols_to_include if col in df_old.columns]
-        df_old_tracking = df_old[tracking_cols]
+        tracking_cols = ['CHART #'] + [col for col in cols_to_include if col in df_old.columns]
+        df_old_subset = df_old[tracking_cols].drop_duplicates(subset=['CHART #'], keep='last')
         
-        # Remove duplicates
-        df_old_tracking = df_old_tracking.drop_duplicates(subset=['CHART #'], keep='last')
-        
-        # LEFT JOIN
-        df_merged = df_new.merge(df_old_tracking, on='CHART #', how='left', suffixes=('', '_old'))
-        
-        # Rename columns according to mapping
-        rename_dict = {}
-        for old_col, (include, new_col) in excel_column_mapping.items():
-            if include and old_col in df_merged.columns and old_col != new_col:
-                rename_dict[old_col] = new_col
-        
-        if rename_dict:
-            df_merged = df_merged.rename(columns=rename_dict)
-        
-        return df_merged
-    else:
-        return df_new
+        # LEFT JOIN on CHART #
+        return df_new.merge(df_old_subset, on='CHART #', how='left', suffixes=('', '_old'))
+    
+    return df_new
 
 
 def prepare_final_output(df, output_columns, date_format='%m/%d/%y'):
@@ -540,14 +558,8 @@ def main():
         st.session_state.processed = False
     if 'df_final' not in st.session_state:
         st.session_state.df_final = None
-    if 'pdf_toast_shown' not in st.session_state:
-        st.session_state.pdf_toast_shown = False
-    if 'excel_toast_shown' not in st.session_state:
-        st.session_state.excel_toast_shown = False
     if 'last_pdf_name' not in st.session_state:
         st.session_state.last_pdf_name = None
-    if 'last_excel_name' not in st.session_state:
-        st.session_state.last_excel_name = None
     
     # Header
     st.title("Dental Statement Processor")
@@ -580,118 +592,127 @@ def main():
             'PATIENT BALANCE': (True, 'PATIENT BALANCE')
         }
     
-    # Initialize session state for old Excel column mapping
+    # Initialize session state for old Excel column mapping (empty until file uploaded)
     if 'excel_column_mapping' not in st.session_state:
-        # Default mapping for old Excel tracking columns (matches original config.py TRACKING_COLUMNS)
-        st.session_state.excel_column_mapping = {
-            'STATUS': (True, 'STATUS'),
-            'NOTES': (True, 'NOTES'),
-            'Follow-Up Date': (True, 'Follow-Up Date'),
-            'Staff Code': (True, 'Staff Code'),
-            'Ortho': (True, 'Ortho'),
-            'BALANCE CODE': (True, 'BALANCE CODE'),
-            'ST1 DATE': (True, 'ST1 DATE'),
-            'AMOUNT1': (True, 'AMOUNT1'),
-            'ST2 DATE': (True, 'ST2 DATE'),
-            'AMOUNT2': (True, 'AMOUNT2'),
-            'ST3 DATE': (True, 'ST3 DATE'),
-            'AMOUNT3': (True, 'AMOUNT3')
-        }
+        st.session_state.excel_column_mapping = {}
+    
+    # Initialize detected columns and header row
+    if 'detected_columns' not in st.session_state:
+        st.session_state.detected_columns = []
+    if 'detected_header_row' not in st.session_state:
+        st.session_state.detected_header_row = 1
+    if 'config_excel_file' not in st.session_state:
+        st.session_state.config_excel_file = None
     
     with main_tab2:
-        # Column Mapping section
-        st.subheader("Column Mapping")
+        # Upload Old Excel Sheet section
+        st.subheader("Previous Tracking Sheet")
+        st.markdown("Upload your old Excel sheet to auto-detect tracking columns.")
         
-        # Input for old Excel columns
-        st.markdown("Add columns from old tracking sheet (To be merged with new data):")
-        old_columns_text = st.text_area(
-            "Old sheet columns",
-            value="\n".join(st.session_state.excel_column_mapping.keys()),
-            height=120,
-            help="Enter column names from your old Excel sheet (one per line)",
-            label_visibility="collapsed"
+        config_excel_file = st.file_uploader(
+            "Upload old tracking sheet",
+            type=['xlsx', 'xls'],
+            help="Excel file with your manual tracking columns",
+            key="config_excel_uploader"
         )
         
-        old_columns = [col.strip() for col in old_columns_text.split('\n') if col.strip()]
+        # When file is uploaded, auto-detect header row and columns
+        if config_excel_file is not None:
+            # Check if this is a new file
+            file_id = f"{config_excel_file.name}_{config_excel_file.size}"
+            if st.session_state.get('last_config_excel_id') != file_id:
+                # Reset file position for reading
+                config_excel_file.seek(0)
+                
+                # Auto-detect header row
+                detected_row = detect_header_row(config_excel_file)
+                st.session_state.detected_header_row = detected_row
+                
+                # Reset file position again
+                config_excel_file.seek(0)
+                
+                # Get tracking columns (columns after PATIENT BALANCE)
+                detected_cols = get_tracking_columns(config_excel_file, detected_row)
+                st.session_state.detected_columns = detected_cols
+                
+                # Initialize column mapping with all columns enabled
+                st.session_state.excel_column_mapping = {
+                    col: (True, col) for col in detected_cols
+                }
+                
+                # Store file reference and ID
+                st.session_state.config_excel_file = config_excel_file
+                st.session_state.last_config_excel_id = file_id
+                
+                # Show detection results
+                st.toast(f"✓ Detected {len(detected_cols)} tracking columns (header row: {detected_row})", icon="✅")
         
-        # Update session state
-        current_cols = set(st.session_state.excel_column_mapping.keys())
-        new_cols = set(old_columns)
+        # Show detected info
+        if st.session_state.detected_columns:
+            st.success(f"**Header row detected:** Row {st.session_state.detected_header_row}")
+            st.info(f"**Found {len(st.session_state.detected_columns)} tracking columns** (columns after PATIENT BALANCE)")
+        elif config_excel_file is not None:
+            st.warning("No tracking columns found after PATIENT BALANCE column. Check that your Excel has the expected format.")
         
-        for col in new_cols - current_cols:
-            st.session_state.excel_column_mapping[col] = (True, col)
+        st.divider()
         
-        for col in current_cols - new_cols:
-            del st.session_state.excel_column_mapping[col]
+        # Column Mapping section
+        st.subheader("Column Selection")
         
-        st.markdown("")
+        if not st.session_state.detected_columns and config_excel_file is None:
+            st.caption("Upload an Excel file above to see available columns.")
         
         # Table header
-        col1, col2, col3, col4 = st.columns([0.6, 1.8, 1.8, 0.8])
+        col1, col2, col3 = st.columns([0.5, 2.5, 1])
         with col1:
-            st.markdown("")  # No header for checkbox
+            st.markdown('<div class="table-header">Include</div>', unsafe_allow_html=True)
         with col2:
-            st.markdown('<div class="table-header">Source Column</div>', unsafe_allow_html=True)
+            st.markdown('<div class="table-header">Column Name</div>', unsafe_allow_html=True)
         with col3:
-            st.markdown('<div class="table-header">Output Name</div>', unsafe_allow_html=True)
-        with col4:
-            st.markdown('<div class="table-header">From</div>', unsafe_allow_html=True)
+            st.markdown('<div class="table-header">Source</div>', unsafe_allow_html=True)
         
-        # All columns in one unified list
-        all_columns = []
-        
-        # Add PDF columns
+        # PDF columns section
         updated_pdf_mapping = {}
         for pdf_col in all_pdf_columns:
-            current_include, current_new_name = st.session_state.pdf_column_mapping.get(pdf_col, (True, pdf_col))
-            all_columns.append(('PDF', pdf_col, current_include, current_new_name))
-        
-        # Add Excel columns
-        updated_excel_mapping = {}
-        for excel_col in old_columns:
-            current_include, current_new_name = st.session_state.excel_column_mapping.get(excel_col, (True, excel_col))
-            all_columns.append(('Excel', excel_col, current_include, current_new_name))
-        
-        # Render unified list with styling
-        for idx, (source, col_name, current_include, current_new_name) in enumerate(all_columns):
-            col1, col2, col3, col4 = st.columns([0.6, 1.8, 1.8, 0.8])
+            current_include, _ = st.session_state.pdf_column_mapping.get(pdf_col, (True, pdf_col))
+            
+            col1, col2, col3 = st.columns([0.5, 2.5, 1])
             
             with col1:
-                include = st.checkbox("", value=current_include, key=f"{source}_inc_{col_name}", label_visibility="collapsed")
+                include = st.checkbox("", value=current_include, key=f"PDF_inc_{pdf_col}", label_visibility="collapsed")
             
             with col2:
-                st.markdown(f"<span style='font-family: monospace; font-size: 0.9rem;'>{col_name}</span>", unsafe_allow_html=True)
+                st.markdown(f"<span style='font-family: monospace; font-size: 0.9rem;'>{pdf_col}</span>", unsafe_allow_html=True)
             
             with col3:
-                if include:
-                    new_name = st.text_input(
-                        "New name",
-                        value=current_new_name,
-                        key=f"{source}_name_{col_name}",
-                        label_visibility="collapsed",
-                        placeholder=col_name
-                    )
-                else:
-                    new_name = col_name
-                    st.markdown(f"<span style='color: #ccc;'>—</span>", unsafe_allow_html=True)
+                st.markdown('<span style="color: #2275b0; font-weight: 500;">PDF</span>', unsafe_allow_html=True)
             
-            with col4:
-                if source == 'PDF':
-                    st.markdown('<span style="color: #2275b0; font-weight: 500;">PDF</span>', unsafe_allow_html=True)
-                else:
-                    st.markdown('<span style="color: #6fa976; font-weight: 500;">Excel</span>', unsafe_allow_html=True)
-            
-            # Update mappings
-            if source == 'PDF':
-                updated_pdf_mapping[col_name] = (include, new_name if new_name else col_name)
-            else:
-                updated_excel_mapping[col_name] = (include, new_name if new_name else col_name)
-            
-            # Add subtle separator except for last row
-            if idx < len(all_columns) - 1:
-                st.markdown('<div style="border-bottom: 1px solid #f5f5f5; margin: 0.2rem 0;"></div>', unsafe_allow_html=True)
+            updated_pdf_mapping[pdf_col] = (include, pdf_col)
         
         st.session_state.pdf_column_mapping = updated_pdf_mapping
+        
+        # Divider between PDF and Excel columns
+        if st.session_state.detected_columns:
+            st.markdown('<div style="border-bottom: 2px solid #e9ecef; margin: 0.5rem 0;"></div>', unsafe_allow_html=True)
+        
+        # Excel columns section (from detected columns)
+        updated_excel_mapping = {}
+        for excel_col in st.session_state.detected_columns:
+            current_include, _ = st.session_state.excel_column_mapping.get(excel_col, (True, excel_col))
+            
+            col1, col2, col3 = st.columns([0.5, 2.5, 1])
+            
+            with col1:
+                include = st.checkbox("", value=current_include, key=f"Excel_inc_{excel_col}", label_visibility="collapsed")
+            
+            with col2:
+                st.markdown(f"<span style='font-family: monospace; font-size: 0.9rem;'>{excel_col}</span>", unsafe_allow_html=True)
+            
+            with col3:
+                st.markdown('<span style="color: #6fa976; font-weight: 500;">Excel</span>', unsafe_allow_html=True)
+            
+            updated_excel_mapping[excel_col] = (include, excel_col)
+        
         st.session_state.excel_column_mapping = updated_excel_mapping
         
         st.divider()
@@ -699,61 +720,36 @@ def main():
         # Advanced Settings section
         st.subheader("Advanced")
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            old_sheet_start_row = st.number_input(
-                "Header row number in old sheet",
-                min_value=1,
-                value=st.session_state.get('old_sheet_start_row', 3),
-                help="Row number where column headers are located (1-indexed)",
-                key="old_sheet_start_row"
-            )
-        
-        with col2:
-            date_format = st.selectbox(
-                "Date format",
-                options=['%m/%d/%y', '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y'],
-                index=0,
-                help="Format for dates in the output Excel file",
-                key="date_format"
-            )
+        date_format = st.selectbox(
+            "Date format",
+            options=['%m/%d/%y', '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y'],
+            index=0,
+            help="Format for dates in the output Excel file",
+            key="date_format"
+        )
     
     with main_tab1:
-        # Two-column layout for file uploads
-        col1, col2 = st.columns(2)
+        # PDF Upload section
+        st.subheader("PDF Statement")
+        pdf_file = st.file_uploader(
+            "Upload patient balance report",
+            type=['pdf'],
+            help="The PDF export from your dental software"
+        )
         
-        with col1:
-            st.subheader("PDF Statement")
-            pdf_file = st.file_uploader(
-                "Upload patient balance report",
-                type=['pdf'],
-                help="The PDF export from your dental software"
-            )
-            
-            # Show toast only once per file
-            if pdf_file is not None:
-                if st.session_state.last_pdf_name != pdf_file.name:
-                    file_size = len(pdf_file.getvalue()) / (1024 * 1024)  # Convert to MB
-                    st.toast(f"✓ {pdf_file.name} loaded ({file_size:.2f} MB)", icon="✅")
-                    st.session_state.last_pdf_name = pdf_file.name
-                    st.session_state.pdf_toast_shown = True
+        # Show toast only once per file
+        if pdf_file is not None:
+            if st.session_state.last_pdf_name != pdf_file.name:
+                file_size = len(pdf_file.getvalue()) / (1024 * 1024)
+                st.toast(f"✓ {pdf_file.name} loaded ({file_size:.2f} MB)", icon="✅")
+                st.session_state.last_pdf_name = pdf_file.name
         
-        with col2:
-            st.subheader("Previous Tracking Sheet")
-            excel_file = st.file_uploader(
-                "Upload last month's tracking data (optional)",
-                type=['xlsx', 'xls'],
-                help="Excel file with your manual tracking columns"
-            )
-            
-            # Show toast only once per file
-            if excel_file is not None:
-                if st.session_state.last_excel_name != excel_file.name:
-                    file_size = len(excel_file.getvalue()) / (1024 * 1024)  # Convert to MB
-                    st.toast(f"✓ {excel_file.name} loaded ({file_size:.2f} MB)", icon="✅")
-                    st.session_state.last_excel_name = excel_file.name
-                    st.session_state.excel_toast_shown = True
+        # Show Excel file status from Configuration tab
+        excel_file = st.session_state.get('config_excel_file')
+        if excel_file:
+            st.success(f"✓ Previous tracking sheet loaded: **{excel_file.name}** ({len(st.session_state.detected_columns)} tracking columns)")
+        else:
+            st.info("💡 Upload your previous tracking sheet in the **Configuration** tab to merge old data.")
         
         st.divider()
         
@@ -824,7 +820,8 @@ def main():
             # Get config values from session state
             pdf_column_mapping = st.session_state.get('pdf_column_mapping', {})
             excel_column_mapping = st.session_state.get('excel_column_mapping', {})
-            old_sheet_start_row = st.session_state.get('old_sheet_start_row', 3)
+            # Use auto-detected header row (defaults to 1)
+            old_sheet_start_row = st.session_state.get('detected_header_row', 1)
             date_format = st.session_state.get('date_format', '%m/%d/%y')
             
             # Build output columns from both mappings
@@ -840,66 +837,37 @@ def main():
                 status_text = st.empty()
                 
                 # Step 1: Parse PDF
-                status_text.text("Step 1/5: Parsing PDF...")
+                status_text.text("Step 1/4: Parsing PDF...")
                 progress_bar.progress(0.0)
                 df_raw = parse_pdf_statements(pdf_file, progress_bar, status_text)
-                total_pdf_records = len(df_raw)
                 
-                # Step 2: Apply parsing rules
-                progress_bar.progress(0.33)
-                status_text.text("Step 2/5: Processing data...")
+                # Step 2: Apply parsing rules and filter
+                progress_bar.progress(0.4)
+                status_text.text("Step 2/4: Processing data...")
                 df_parsed = apply_parsing_rules(df_raw)
-                
-                # Step 3: Filter outstanding balances
-                progress_bar.progress(0.5)
-                status_text.text("Step 3/5: Filtering outstanding balances...")
                 df_filtered = filter_outstanding_balances(df_parsed)
-                outstanding_records = len(df_filtered)
                 
-                # Step 4: Load old tracking sheet
-                progress_bar.progress(0.66)
-                status_text.text("Step 4/5: Loading tracking data...")
+                # Step 3: Load and merge old tracking sheet
+                progress_bar.progress(0.6)
+                status_text.text("Step 3/4: Merging tracking data...")
                 df_old = pd.DataFrame()
-                old_records_count = 0
                 if excel_file:
+                    excel_file.seek(0)
                     df_old = load_old_tracking_sheet(excel_file, old_sheet_start_row)
-                    old_records_count = len(df_old)
-                
-                # Step 5: Merge and prepare output
-                progress_bar.progress(0.83)
-                status_text.text("Step 5/5: Merging data...")
                 df_merged = merge_with_tracking_data(df_filtered, df_old, excel_column_mapping)
                 
-                # Count matched records
-                matched_records = 0
-                if not df_old.empty and 'STATUS' in df_merged.columns:
-                    matched_records = df_merged['STATUS'].notna().sum()
-                
-                # Apply PDF column mapping (filter and rename)
-                pdf_rename_dict = {}
-                for pdf_col, (include, new_name) in pdf_column_mapping.items():
-                    if pdf_col in df_merged.columns and pdf_col != new_name:
-                        pdf_rename_dict[pdf_col] = new_name
-                
-                if pdf_rename_dict:
-                    df_merged = df_merged.rename(columns=pdf_rename_dict)
-                
+                # Step 4: Prepare final output
+                progress_bar.progress(0.8)
+                status_text.text("Step 4/4: Preparing output...")
                 df_final = prepare_final_output(df_merged, output_columns, date_format)
                 
                 # Complete
                 progress_bar.progress(1.0)
                 status_text.text("Processing complete")
                 
-                # Store in session state with stats
+                # Store in session state
                 st.session_state.df_final = df_final
                 st.session_state.processed = True
-                st.session_state.processing_stats = {
-                    'total_pdf_records': total_pdf_records,
-                    'outstanding_records': outstanding_records,
-                    'old_records_count': old_records_count,
-                    'matched_records': matched_records,
-                    'final_records': len(df_final)
-                }
                 
                 # Auto-scroll to results after processing
                 components.html(
@@ -924,7 +892,6 @@ def main():
         # Display results if processed
         if st.session_state.processed and st.session_state.df_final is not None:
             df_final = st.session_state.df_final
-            stats = st.session_state.get('processing_stats', {})
             
             st.divider()
             st.markdown("### Results")
@@ -968,6 +935,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
 
