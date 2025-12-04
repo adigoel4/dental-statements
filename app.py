@@ -448,14 +448,30 @@ def get_tracking_columns(excel_file, header_row):
         if patient_balance_idx is None:
             return []
         
-        # Get columns after PATIENT BALANCE, stop at first blank
+        # Get columns after PATIENT BALANCE
+        # Skip initial blank columns, then collect until next blank
+        # Max 100 columns to scan
+        remaining_cols = columns[patient_balance_idx + 1:]
+        max_scan = min(100, len(remaining_cols))
+        
         tracking_cols = []
-        for col in columns[patient_balance_idx + 1:]:
+        started_collecting = False
+        
+        for i in range(max_scan):
+            col = remaining_cols[i]
             col_str = str(col).strip()
-            # Stop if column is blank, empty, or unnamed
-            if not col_str or col_str.startswith('Unnamed') or col_str == 'nan':
-                break
-            tracking_cols.append(col)
+            is_blank = not col_str or col_str.startswith('Unnamed') or col_str == 'nan'
+            
+            if is_blank:
+                # If we already started collecting, stop at this blank
+                if started_collecting:
+                    break
+                # Otherwise skip this leading blank
+                continue
+            else:
+                # Found a non-blank column, start/continue collecting
+                started_collecting = True
+                tracking_cols.append(col)
         
         return tracking_cols
         
