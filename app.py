@@ -434,10 +434,12 @@ def get_tracking_columns(excel_file, header_row):
         columns = list(df.columns)
         
         # Only scan first 10 columns for PATIENT BALANCE (case insensitive)
+        # Normalizes whitespace so "patient\nbalance" or "patient   balance" still matches
         patient_balance_idx = None
         search_limit = min(10, len(columns))
         for i in range(search_limit):
-            col_name = str(columns[i]).lower().strip()
+            # Convert to lowercase, replace any whitespace with single space
+            col_name = ' '.join(str(columns[i]).lower().split())
             if 'patient balance' in col_name:
                 patient_balance_idx = i
                 break
