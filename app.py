@@ -425,31 +425,37 @@ def detect_header_row(excel_file):
 def get_tracking_columns(excel_file, header_row):
     """
     Get columns from old Excel sheet that come after PATIENT BALANCE.
-    These are the tracking columns that need to be merged.
-    Returns list of column names.
+    Scans first 10 columns to find PATIENT BALANCE (case insensitive).
+    Returns all columns to the right until hitting a blank column.
     """
     try:
         # Read with detected header row
         df = pd.read_excel(excel_file, sheet_name=0, skiprows=header_row - 1, header=0)
         columns = list(df.columns)
         
-        # Find PATIENT BALANCE column (case-insensitive search)
+        # Only scan first 10 columns for PATIENT BALANCE (case insensitive)
         patient_balance_idx = None
-        for i, col in enumerate(columns):
-            if 'patient balance' in str(col).lower():
+        search_limit = min(10, len(columns))
+        for i in range(search_limit):
+            col_name = str(columns[i]).lower().strip()
+            if 'patient balance' in col_name:
                 patient_balance_idx = i
                 break
         
-        # If found, return all columns after it
-        if patient_balance_idx is not None:
-            tracking_cols = columns[patient_balance_idx + 1:]
-            # Filter out unnamed columns and empty strings
-            tracking_cols = [col for col in tracking_cols 
-                           if col and not str(col).startswith('Unnamed')]
-            return tracking_cols
+        # If not found in first 10 columns, return empty
+        if patient_balance_idx is None:
+            return []
         
-        # If PATIENT BALANCE not found, return empty list
-        return []
+        # Get columns after PATIENT BALANCE, stop at first blank
+        tracking_cols = []
+        for col in columns[patient_balance_idx + 1:]:
+            col_str = str(col).strip()
+            # Stop if column is blank, empty, or unnamed
+            if not col_str or col_str.startswith('Unnamed') or col_str == 'nan':
+                break
+            tracking_cols.append(col)
+        
+        return tracking_cols
         
     except Exception:
         return []
