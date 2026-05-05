@@ -336,9 +336,11 @@ def apply_parsing_rules(df):
         lambda x: 'YES' if str(x).strip().upper() == 'YES' else ''
     )
     
-    # Convert dates
-    df.loc[:, 'LAST PATIENT PMT'] = pd.to_datetime(df['LAST PATIENT PMT'], errors='coerce')
-    df.loc[:, 'LAST VISIT DATE'] = pd.to_datetime(df['LAST VISIT DATE'], errors='coerce')
+    # Convert dates. Use df[col] = ... instead of df.loc[:, col] = ... so the column
+    # dtype becomes datetime64. String / StringDtype columns reject datetime values
+    # when assigned through .loc (TypeError on current pandas).
+    df['LAST PATIENT PMT'] = pd.to_datetime(df['LAST PATIENT PMT'], errors='coerce')
+    df['LAST VISIT DATE'] = pd.to_datetime(df['LAST VISIT DATE'], errors='coerce')
     
     # Convert balances
     for col in ['FAMILY BALANCE', 'PATIENT BALANCE']:
@@ -703,7 +705,13 @@ def main():
             col1, col2, col3 = st.columns([0.5, 2.5, 1])
             
             with col1:
-                include = st.checkbox("", value=current_include, key=f"PDF_inc_{pdf_col}", label_visibility="collapsed")
+                # Non-empty label required for a11y; column name keeps it unique per widget.
+                include = st.checkbox(
+                    f"Include PDF column {pdf_col}",
+                    value=current_include,
+                    key=f"PDF_inc_{pdf_col}",
+                    label_visibility="collapsed",
+                )
             
             with col2:
                 st.markdown(f"<span style='font-family: monospace; font-size: 0.9rem;'>{pdf_col}</span>", unsafe_allow_html=True)
@@ -727,7 +735,12 @@ def main():
             col1, col2, col3 = st.columns([0.5, 2.5, 1])
             
             with col1:
-                include = st.checkbox("", value=current_include, key=f"Excel_inc_{excel_col}", label_visibility="collapsed")
+                include = st.checkbox(
+                    f"Include Excel column {excel_col}",
+                    value=current_include,
+                    key=f"Excel_inc_{excel_col}",
+                    label_visibility="collapsed",
+                )
             
             with col2:
                 st.markdown(f"<span style='font-family: monospace; font-size: 0.9rem;'>{excel_col}</span>", unsafe_allow_html=True)
